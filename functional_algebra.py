@@ -1,27 +1,40 @@
+import warnings
+
 global_variable_index = 0
 
 list_of_evaluation_functions = [
 "identity",
 "add",
 "product",
-"subtract",
 "divide",
 ]
 
 variable_dictionary = {}
 
 class variable:
-    def __init__(self,name = None):
+    def __init__(self,name = None, backend= None):
         global global_variable_index
         self.variable_index = global_variable_index
         variable_dictionary[self.variable_index] = self
         self.name = name if name is not None else f"variable{self.variable_index}"
         self.named = name is not None
+        self.backend = backend
         global_variable_index += 1
         self.required_variables_list = [self.variable_index]
         self.evaluation_function = "identity"
-        self.evaluation_function_argument_variables = [self.variable_index]
-        self.evaluation_function_argument_constants = []
+        self.argument_variables = [self.variable_index]
+        self.argument_constants = []
+        
+        #setting all the backend specific stuff
+        if(backend is None):
+            self.add = sum
+            def t(args):
+                ret = 1
+                for a in args:
+                    ret*=a
+                return ret
+            self.product = t
+            self.divide = lambda x,y: x/y
 
     def give_name(self,name):
         self.name = name
@@ -32,36 +45,36 @@ class variable:
         ret = variable()
         ret.evaluation_function = "add"
         ret.required_variables_list = []
-        ret.evaluation_function_argument_variables = []
-        ret.evaluation_function_argument_constants = []
+        ret.argument_variables = []
+        ret.argument_constants = []
         if(type(a)!=variable and type(b)!=variable):
             raise TypeError("both arguments are not not of type variable")
         if(type(a)==variable):
             ret.required_variables_list += a.required_variables_list
             if(a.evaluation_function=="add"):
-                ret.evaluation_function_argument_variables += a.evaluation_function_argument_variables
-                ret.evaluation_function_argument_constants += a.evaluation_function_argument_constants
+                ret.argument_variables += a.argument_variables
+                ret.argument_constants += a.argument_constants
             else:
-                ret.evaluation_function_argument_variables.append(a.variable_index)
-                ret.evaluation_function_argument_constants.append(True)
+                ret.argument_variables.append(a.variable_index)
+                ret.argument_constants.append(True)
         else:
-            ret.evaluation_function_argument_variables.append(None)
-            ret.evaluation_function_argument_constants.append(a)
+            ret.argument_variables.append(None)
+            ret.argument_constants.append(a)
 
         if(type(b)==variable):
             if(b.evaluation_function == "add"):
-                ret.evaluation_function_argument_variables += b.evaluation_function_argument_variables
+                ret.argument_variables += b.argument_variables
                 if(minus):
-                    for c in b.evaluation_function_argument_constants:
-                        ret.evaluation_function_argument_variables.append(-c)
+                    for c in b.argument_constants:
+                        ret.argument_variables.append(-c)
                 else:
-                    ret.evaluation_function_argument_constants += b.evaluation_function_argument_constants
+                    ret.argument_constants += b.argument_constants
             else:
-                ret.evaluation_function_argument_variables.append(b.variable_index)
-                ret.evaluation_function_argument_constants.append(not minus)
+                ret.argument_variables.append(b.variable_index)
+                ret.argument_constants.append(not minus)
         else:
-            ret.evaluation_function_argument_variables.append(None)
-            ret.evaluation_function_argument_constants.append(-a if minus else a)
+            ret.argument_variables.append(None)
+            ret.argument_constants.append(-a if minus else a)
 
         return ret
 
@@ -69,45 +82,73 @@ class variable:
         return variable.__add(self,a)
 
     def __sub__(self,a):
-        # ret = variable()
-        # if(type(a) != type(self)):
-        #     return self + (-a)
-        # else:
-        #     ret.required_variables_list = self.required_variables_list + a.required_variables_list
-        #     ret.evaluation_function = "subtract"
-        #     ret.evaluation_function_argument_variables = [self.variable_index,a.variable_index]
-        #
-        # return ret
         return variable.__add(self,a,minus=True)
-
+    
+    #TODO: implement system for product variable to hold multiple arguments like add.
     def __mul__(self,a):
         ret = variable()
         if(type(a) != type(self)):
             ret.required_variables_list = self.required_variables_list
             ret.evaluation_function = "product"
-            ret.evaluation_function_argument_variables = [self.variable_index]
+            ret.argument_variables = [self.variable_index]
         else:
             ret.required_variables_list = self.required_variables_list + a.required_variables_list
             ret.evaluation_function = "product"
-            ret.evaluation_function_argument_variables = [self.variable_index,a.variable_index]
+            ret.argument_variables = [self.variable_index,a.variable_index]
 
         return ret
 
     def __truediv__(self,a):
         ret = variable()
         if(type(a) != type(self)):
-            return self*(1/a)
+            return self*(1/a) #strongly reconsider this.
         else:
             ret.required_variables_list = self.required_variables_list + a.required_variables_list
             ret.evaluation_function = "divide"
-            ret.evaluation_function_argument_variables = [self.variable_index,a.variable_index]
+            ret.argument_variables = [self.variable_index,a.variable_index]
 
         return ret
 
     #TODO: figure out how to add a to self
 
-    def __or__(self,a):
+    def __rshift__(self,a):
         return assigned_variable(self,a)
+        
+    def evaluate(self,*args):
+        if(type(args[0]) == list or type(args[0]) == tuple):
+            if(len(args)>1):
+                warnings.warn("the first argument to evaluate was a list, ignoring other arguments")
+            args = args[0]
+        #TODO: check if all variables were assigned.
+        #TODO: lots and lots of optimization.
+        if(self.evaluation_function == "identity"):
+            for a in args:
+                if(a.variable_index == self.variable_index):
+                    return a.value
+            raise Error(f"the variable {self} was not assigned")
+        elif(self.evaluation_function == "add"):
+            arglist = []
+            for i in range(len(self.argument_variables)):
+                if(self.argument_variables[i] is None):
+                    arglist.append(self.argument_constants[i])
+                else:
+                    E = 1 if self.argument_constants[i] else -1
+                    E *= variable_dictionary[self.argument_variables[i]].evaluate(args)
+                    arglist.append(E)
+            return(self.add(arglist))
+        elif(self.evaluation_function == "product"):
+            arglist = []
+            for i in range(len(self.argument_variables)):
+                if(self.argument_variables[i] is None):
+                    arglist.append(self.argument_constants[i])
+                else:
+                    E = variable_dictionary[self.argument_variables[i]].evaluate(args)
+                    arglist.append(E)
+            return(self.product(arglist))
+        elif(self.evaluation_function == "divide"):
+            arg1 = variable_dictionary[self.argument_variables[0]].evaluate(args)
+            arg2 = variable_dictionary[self.argument_variables[1]].evaluate(args)
+            return self.divide(arg1, arg2)
 
     @staticmethod
     def __str(self,brackets=True):
@@ -115,15 +156,15 @@ class variable:
             return self.name
         elif(self.evaluation_function == "add"):
             ret = "(" if brackets else ""
-            for i in range(len(self.evaluation_function_argument_variables)):
-                if(self.evaluation_function_argument_variables[i] is not None):
-                    if(self.evaluation_function_argument_constants[i]):
+            for i in range(len(self.argument_variables)):
+                if(self.argument_variables[i] is not None):
+                    if(self.argument_constants[i]):
                         ret += "" if i==0 else "+"
                     else:
                         ret += "-"
-                    ret += variable.__str(variable_dictionary[self.evaluation_function_argument_variables[i]])
+                    ret += variable.__str(variable_dictionary[self.argument_variables[i]])
                 else:
-                    s = variable.__str(self.evaluation_function_argument_constants[i])
+                    s = variable.__str(self.argument_constants[i])
                     if(s[0]!="-" or s[0]!="+"):
                         ret += "+"
                     ret += s
@@ -132,10 +173,10 @@ class variable:
 
         elif(self.evaluation_function == "product"):
             ret = "(" if brackets else ""
-            for index in self.evaluation_function_argument_variables:
+            for index in self.argument_variables:
                 ret += variable.__str(variable_dictionary[index])
                 ret += "×"
-            for c in self.evaluation_function_argument_constants:
+            for c in self.argument_constants:
                 ret += variable.__str(c)
                 ret += "×"
             if(ret[-1] == '×'):
@@ -145,22 +186,22 @@ class variable:
 
         elif(self.evaluation_function == "divide"):
             ret = "(" if brackets else ""
-            if(self.evaluation_function_argument_variables[0] is not None):
-                ret += variable.__str(variable_dictionary[self.evaluation_function_argument_variables[0]])
+            if(self.argument_variables[0] is not None):
+                ret += variable.__str(variable_dictionary[self.argument_variables[0]])
                 ret += "/"
-                if(len(self.evaluation_function_argument_variables) > 1):
-                    ret += variable.__str(variable_dictionary[self.evaluation_function_argument_variables[1]])
-                elif(len(self.evaluation_function_argument_constants)>0):
-                    ret += variable.__str(self.evaluation_function_argument_constants[0])
+                if(len(self.argument_variables) > 1):
+                    ret += variable.__str(variable_dictionary[self.argument_variables[1]])
+                elif(len(self.argument_constants)>0):
+                    ret += variable.__str(self.argument_constants[0])
                 else:
                     raise(ValueError("malformed variable object, this should not happen unless you manipulated the object using non-official means."))
             else:
-                if(len(self.evaluation_function_argument_constants)==0):
+                if(len(self.argument_constants)==0):
                     raise(ValueError("malformed variable object, this should not happen unelss you manipulated the object using non-official means."))
                 else:
-                    ret += variable.__str(evaluation_function_argument_constants[0])
+                    ret += variable.__str(argument_constants[0])
                     ret += "/"
-                    ret += variable.__str(variable_dictionary[self.evaluation_function_argument_variables[1]])
+                    ret += variable.__str(variable_dictionary[self.argument_variables[1]])
             ret += ")" if brackets else  ""
             return ret
         return "error"
@@ -183,10 +224,11 @@ if(__name__ == "__main__"):
     e = c*d
     f = c/d
     g = d - e + f
-    print(a)
-    print(b)
-    print(c)
-    print(d)
-    print(e)
-    print(f)
-    print(g)
+    values = [a>>1,b>>3]
+    print(a,a.evaluate(values))
+    print(b,b.evaluate(values))
+    print(c,c.evaluate(values))
+    print(d,d.evaluate(values))
+    print(e,e.evaluate(values))
+    print(f,f.evaluate(values))
+    print(g,g.evaluate(values))
