@@ -11,30 +11,37 @@ list_of_evaluation_functions = [
 
 variable_dictionary = {}
 
+backend = "vanilla python"
+
+Funcs = {}
+
+Funcs["vanilla python"] = {
+    "add": sum,
+    "divide": lambda x,y: x/y
+}
+def t(args):
+    ret = 1
+    for a in args:
+        ret*=a
+    return ret
+Funcs["vanilla python"]["product"] = t
+
+def set_backend(B):
+    global backend
+    backend = B
+
 class variable:
-    def __init__(self,name = None, backend= None):
+    def __init__(self,name = None):
         global global_variable_index
         self.variable_index = global_variable_index
         variable_dictionary[self.variable_index] = self
         self.name = name if name is not None else f"variable{self.variable_index}"
         self.named = name is not None
-        self.backend = backend
         global_variable_index += 1
         self.required_variables_list = [self.variable_index]
         self.evaluation_function = "identity"
-        self.argument_variables = [self.variable_index]
+        self.argument_variables = []
         self.argument_constants = []
-        
-        #setting all the backend specific stuff
-        if(backend is None):
-            self.add = sum
-            def t(args):
-                ret = 1
-                for a in args:
-                    ret*=a
-                return ret
-            self.product = t
-            self.divide = lambda x,y: x/y
 
     def give_name(self,name):
         self.name = name
@@ -74,34 +81,60 @@ class variable:
                 ret.argument_constants.append(not minus)
         else:
             ret.argument_variables.append(None)
-            ret.argument_constants.append(-a if minus else a)
+            ret.argument_constants.append(-b if minus else b)
 
+        return ret
+
+    def __mul(a,b):
+        if(type(a)!=variable and type(b)!=variable):
+            raise TypeError("both arguments are not of type variable")
+        ret = variable()
+        ret.required_variables_list = []
+        ret.evaluation_function = "product"
+        if(type(a) != variable):
+            ret.argument_variables.append(None)
+            ret.argument_constants.append(a)
+        elif(a.evaluation_function == "product"):
+            ret.required_variables_list += a.required_variables_list
+            ret.argument_variables += a.argument_variables
+            ret.argument_constants += a.argument_constants
+        else:
+            ret.required_variables_list += a.required_variables_list
+            ret.argument_variables.append(a.variable_index)
+            ret.argument_constants.append(None)
+        if(type(b) != variable):
+            ret.argument_variables.append(None)
+            ret.argument_constants.append(b)
+        elif(b.evaluation_function == "product"):
+            ret.required_variables_list += b.required_variables_list
+            ret.argument_variables += b.argument_variables
+            ret.argument_constants += b.argument_constants
+        else:
+            ret.required_variables_list += b.required_variables_list
+            ret.argument_variables.append(b.variable_index)
+            ret.argument_constants.append(None)
         return ret
 
     def __add__(self,a):
         return variable.__add(self,a)
+        
+    def __radd__(self,a):
+        return variable.__add(a,self)
 
     def __sub__(self,a):
         return variable.__add(self,a,minus=True)
     
     #TODO: implement system for product variable to hold multiple arguments like add.
     def __mul__(self,a):
-        ret = variable()
-        if(type(a) != type(self)):
-            ret.required_variables_list = self.required_variables_list
-            ret.evaluation_function = "product"
-            ret.argument_variables = [self.variable_index]
-        else:
-            ret.required_variables_list = self.required_variables_list + a.required_variables_list
-            ret.evaluation_function = "product"
-            ret.argument_variables = [self.variable_index,a.variable_index]
-
-        return ret
+        return variable.__mul(self,a)
+        
+    def __rmul__(self,a):
+        return variable.__mul(a,self)
 
     def __truediv__(self,a):
         ret = variable()
         if(type(a) != type(self)):
-            return self*(1/a) #strongly reconsider this.
+            return self*(1/a) #TODO: strongly reconsider this.
         else:
             ret.required_variables_list = self.required_variables_list + a.required_variables_list
             ret.evaluation_function = "divide"
@@ -135,7 +168,7 @@ class variable:
                     E = 1 if self.argument_constants[i] else -1
                     E *= variable_dictionary[self.argument_variables[i]].evaluate(args)
                     arglist.append(E)
-            return(self.add(arglist))
+            return Funcs[backend]["add"](arglist)
         elif(self.evaluation_function == "product"):
             arglist = []
             for i in range(len(self.argument_variables)):
@@ -144,11 +177,11 @@ class variable:
                 else:
                     E = variable_dictionary[self.argument_variables[i]].evaluate(args)
                     arglist.append(E)
-            return(self.product(arglist))
+            return Funcs[backend]["product"](arglist)
         elif(self.evaluation_function == "divide"):
             arg1 = variable_dictionary[self.argument_variables[0]].evaluate(args)
             arg2 = variable_dictionary[self.argument_variables[1]].evaluate(args)
-            return self.divide(arg1, arg2)
+            return Funcs[backend]["divide"](arg1, arg2)
 
     @staticmethod
     def __str(self,brackets=True):
@@ -164,23 +197,22 @@ class variable:
                         ret += "-"
                     ret += variable.__str(variable_dictionary[self.argument_variables[i]])
                 else:
-                    s = variable.__str(self.argument_constants[i])
+                    s = str(self.argument_constants[i])
                     if(s[0]!="-" or s[0]!="+"):
-                        ret += "+"
+                        ret += "+" if i!=0 else ""
                     ret += s
             ret += ")" if brackets else ""
             return ret
 
         elif(self.evaluation_function == "product"):
             ret = "(" if brackets else ""
-            for index in self.argument_variables:
-                ret += variable.__str(variable_dictionary[index])
-                ret += "×"
-            for c in self.argument_constants:
-                ret += variable.__str(c)
-                ret += "×"
-            if(ret[-1] == '×'):
-                ret = ret[:-1]
+            for i in range(len(self.argument_variables)):
+                if(i>0):
+                    ret += "×"
+                if(self.argument_variables[i] is not None):
+                    ret += variable.__str(variable_dictionary[self.argument_variables[i]])
+                else:
+                    ret += str(self.argument_constants[i])
             ret += ")" if brackets else ""
             return ret
 
@@ -219,8 +251,8 @@ class assigned_variable:
 if(__name__ == "__main__"):
     a = variable("a")
     b = variable("b")
-    c = a+b
-    d = a-b
+    c = a+b+10
+    d = 9+a-b
     e = c*d
     f = c/d
     g = d - e + f
