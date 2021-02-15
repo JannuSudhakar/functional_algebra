@@ -115,6 +115,21 @@ class variable:
             ret.argument_constants.append(None)
         return ret
 
+    def __truediv(a,b):
+        if(type(a)!=variable and type(b)!=variable):
+            raise TypeError("both arguments are not of type variable")
+        ret = variable()
+        ret.required_variables_list = []
+        ret.evaluation_function = "divide"
+        for c in [a,b]:
+            if(type(c) == variable):
+                ret.argument_variables.append(c.variable_index)
+                ret.argument_constants.append(None)
+            else:
+                ret.argument_variables.append(None)
+                ret.argument_constants.append(c)
+        return ret
+        
     def __add__(self,a):
         return variable.__add(self,a)
         
@@ -123,8 +138,10 @@ class variable:
 
     def __sub__(self,a):
         return variable.__add(self,a,minus=True)
+        
+    def __rsub__(self,a):
+        return variable.__add(a,self,minus=True)
     
-    #TODO: implement system for product variable to hold multiple arguments like add.
     def __mul__(self,a):
         return variable.__mul(self,a)
         
@@ -132,17 +149,10 @@ class variable:
         return variable.__mul(a,self)
 
     def __truediv__(self,a):
-        ret = variable()
-        if(type(a) != type(self)):
-            return self*(1/a) #TODO: strongly reconsider this.
-        else:
-            ret.required_variables_list = self.required_variables_list + a.required_variables_list
-            ret.evaluation_function = "divide"
-            ret.argument_variables = [self.variable_index,a.variable_index]
-
-        return ret
-
-    #TODO: figure out how to add a to self
+        return variable.__truediv(self,a)
+        
+    def __rtruediv__(self,a):
+        return variable.__truediv(a,self)
 
     def __rshift__(self,a):
         return assigned_variable(self,a)
@@ -179,9 +189,13 @@ class variable:
                     arglist.append(E)
             return Funcs[backend]["product"](arglist)
         elif(self.evaluation_function == "divide"):
-            arg1 = variable_dictionary[self.argument_variables[0]].evaluate(args)
-            arg2 = variable_dictionary[self.argument_variables[1]].evaluate(args)
-            return Funcs[backend]["divide"](arg1, arg2)
+            arglist = []
+            for i in range(2):
+                if(self.argument_variables[i] is not None):
+                    arglist.append(variable_dictionary[self.argument_variables[i]].evaluate(args))
+                else:
+                    arglist.append(self.argument_constants[i])
+            return Funcs[backend]["divide"](arglist[0], arglist[1])
 
     @staticmethod
     def __str(self,brackets=True):
@@ -218,22 +232,16 @@ class variable:
 
         elif(self.evaluation_function == "divide"):
             ret = "(" if brackets else ""
-            if(self.argument_variables[0] is not None):
-                ret += variable.__str(variable_dictionary[self.argument_variables[0]])
-                ret += "/"
-                if(len(self.argument_variables) > 1):
-                    ret += variable.__str(variable_dictionary[self.argument_variables[1]])
-                elif(len(self.argument_constants)>0):
-                    ret += variable.__str(self.argument_constants[0])
+            sstrs = []
+            for i in range(2):
+                if(self.argument_variables[i] is not None):
+                    var = variable_dictionary[self.argument_variables[i]]
+                    sstrs.append(variable.__str(var))
                 else:
-                    raise(ValueError("malformed variable object, this should not happen unless you manipulated the object using non-official means."))
-            else:
-                if(len(self.argument_constants)==0):
-                    raise(ValueError("malformed variable object, this should not happen unelss you manipulated the object using non-official means."))
-                else:
-                    ret += variable.__str(argument_constants[0])
-                    ret += "/"
-                    ret += variable.__str(variable_dictionary[self.argument_variables[1]])
+                    sstrs.append(str(self.argument_constants[i]))
+            ret += sstrs[0]
+            ret += "/"
+            ret += sstrs[1]
             ret += ")" if brackets else  ""
             return ret
         return "error"
@@ -252,10 +260,11 @@ if(__name__ == "__main__"):
     a = variable("a")
     b = variable("b")
     c = a+b+10
-    d = 9+a-b
+    d = 9-a+b
     e = c*d
     f = c/d
     g = d - e + f
+    h = 89/g
     values = [a>>1,b>>3]
     print(a,a.evaluate(values))
     print(b,b.evaluate(values))
@@ -264,3 +273,4 @@ if(__name__ == "__main__"):
     print(e,e.evaluate(values))
     print(f,f.evaluate(values))
     print(g,g.evaluate(values))
+    print(h,h.evaluate(values))
