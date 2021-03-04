@@ -1,5 +1,6 @@
 import warnings
 import math
+import numpy as np
 
 global_variable_index = 0
 
@@ -20,7 +21,8 @@ list_of_evaluation_functions = [
 "divide",
 "pow",
 "neg",
-"log" #forgoive me for not naming this ln, the rest of python calls it log
+"log", #forgoive me for not naming this ln, the rest of python calls it log
+"exp"
 ]
 
 variable_dictionary = {} #TODO: see if a garbage collector can be written
@@ -30,10 +32,12 @@ backend = "vanilla python"
 Funcs = {}
 
 Funcs["vanilla python"] = {} #TODO: add more backends
+Funcs["numpy"] = {}
 
 #--------------------------backend implementations-----------------------------#
 #add implementations:
 Funcs["vanilla python"]["add"] = sum
+Funcs["numpy"]["add"] = sum
 
 #product implementations:
 def t(args):
@@ -42,18 +46,28 @@ def t(args):
         ret*=a
     return ret
 Funcs["vanilla python"]["product"] = t
+Funcs["numpy"]["product"] = t
 
 #divide implementations:
 Funcs["vanilla python"]["divide"] = lambda x,y: x/y
+Funcs["numpy"]["divide"] = np.divide
 
 #pow implementations:
 Funcs["vanilla python"]["pow"] = lambda x,y: x**y
+Funcs["numpy"]["pow"] = np.power
 
 #neg implementations:
 Funcs["vanilla python"]["neg"] = lambda x: -x
+Funcs["numpy"]["neg"] = lambda x: -x
 
 #log implementations:
-Funcs["vanilla python"]["log"] = lambda x: math.log(x)
+Funcs["vanilla python"]["log"] = math.log
+Funcs["numpy"]["log"] = np.log
+
+#exp implementations:
+Funcs["vanilla python"]["exp"] = math.exp
+Funcs["numpy"]["exp"] = np.exp
+
 #--------------------------backend implementations-----------------------------#
 
 def set_backend(B):
@@ -128,23 +142,39 @@ class variable:
         ret.argument_variables = []
         atleast_one_variable = False
         atleast_one_None = False
+        constant = None
         for a in args:
             if(a is None):
                 atleast_one_None = True
             if(type(a) == variable):
                 atleast_one_variable = True
-                ret.required_variables_set = ret.required_variables_set.union(a.required_variables_set)
-                if(a.evaluation_function != "product"):
-                    ret.argument_variables.append(a.variable_index)
-                    ret.argument_constants.append(None)
+                if(a.evaluation_function == "constant"):
+                    constant = a.argument_constants[0] if constant is None else a.argument_constants[0] * constant
                 else:
-                    ret.argument_variables += a.argument_variables
-                    ret.argument_constants += a.argument_constants
+                    ret.required_variables_set = ret.required_variables_set.union(a.required_variables_set)
+                    if(a.evaluation_function != "product"):
+                        ret.argument_variables.append(a.variable_index)
+                        ret.argument_constants.append(None)
+                    else:
+                        for i in range(len(a.argument_variables)):
+                            if(a.argument_variables[i] is not None):
+                                ret.argument_variables.append(a.argument_variables[i])
+                                ret.argument_constants.append(a.argument_constants[i])
+                            else:
+                                constant = a.argument_constants[i] if constant is None else constant * a.argument_constants[i]
             else:
-                ret.argument_variables.append(None)
-                ret.argument_constants.append(a)
-        assert(atleast_one_variable)
+                if(a is None):
+                    atleast_one_None = True
+                    break
+                constant = a if constant is None else a * constant
+        if(constant is not None):
+            if(len(ret.argument_variables) == 0):
+                ret = variable(constant = constant)
+            else:
+                ret.argument_variables = [None] + ret.argument_variables
+                ret.argument_constants = [constant] + ret.argument_constants
         if(atleast_one_None): return None
+        assert(atleast_one_variable)
         return ret
 
     @staticmethod
@@ -208,6 +238,7 @@ class variable:
     def __pow(a,b):
         if(type(a)!=variable and type(b)!=variable):
             raise TypeError("both arguments are not of type variable")
+
         ret = variable()
         ret.required_variables_set = set()
         ret.argument_variables = []
@@ -266,6 +297,12 @@ class variable:
         ret.argument_variables = [self.variable_index]
         return ret
 
+    def exp(self):
+        ret = variable()
+        ret.evaluation_function = "exp"
+        ret.required_variables_set = set(self.required_variables_set)
+        ret.argument_variables = [self.variable_index]
+        return ret
 
     def __rshift__(self,a):
         return assigned_variable(self,a)
@@ -334,9 +371,11 @@ class variable:
                 ret = t if ret is None else ret + t
             return ret.variable_index
         elif(self.evaluation_function == "neg"):
-            return -arg_derivatives[0].variable_index
+            return (-arg_derivatives[0]).variable_index
         elif(self.evaluation_function == "log"):
             return (arg_derivatives[0]/variable_dictionary[self.argument_variables[0]]).variable_index
+        elif(self.evaluation_function == "exp"):
+            return (arg_derivatives[0]*self).variable_index
 
     def __differentiate_once(self,v):
         if(type(v) != variable):
@@ -424,6 +463,8 @@ class variable:
             return Funcs[backend]["neg"](arg_vars[0])
         elif(evaluation_function == "log"):
             return Funcs[backend]["log"](arg_vars[0])
+        elif(evaluation_function == "exp"):
+            return Funcs[backend]["exp"](arg_vars[0])
         raise ValueError("the evaluation function seems to be not implemented")
 
     def evaluate(self,*args):
@@ -517,7 +558,7 @@ class variable:
         return tracking_dict[self.variable_index]['evaluated_value']
 
     @staticmethod
-    def __str(self,brackets=True):
+    def __str(self,brackets=True): #I guess its a bad idea to name the argument self, but I won't change it rn
         if(self.named or self.evaluation_function == "identity"):
             return self.name
         if(self.evaluation_function == "constant"):
@@ -585,7 +626,10 @@ class variable:
             ret += ")" if brackets else  ""
             return ret
         elif(self.evaluation_function == "log"):
-            return f"log({variable.__str(variable_dictionary[self.argument_variables[0]])})"
+            return f"log({variable.__str(variable_dictionary[self.argument_variables[0]],brackets=False)})"
+        elif(self.evaluation_function == "exp"):
+            return f"exp({variable.__str(variable_dictionary[self.argument_variables[0]],brackets=False)})"
+
         return f"__str not implemented for the evaluation_function {self.evaluation_function}"
 
     def __str__(self):
@@ -603,6 +647,10 @@ class assigned_variable:
             raise TypeError("a variable cannot be assigned a variable as a value, I don't know if I will ever support something like this.")
         self.variable_index = variable.variable_index
         self.value = value
+
+#---------------------------------functions-------------------------------------
+def exp(x):
+    return x.exp()
 
 if(__name__ == "__main__"):
     a = variable("a")
@@ -632,10 +680,11 @@ if(__name__ == "__main__"):
     B = variable("B")
     C = variable("C")
     D = A.log()
-    E = A**2 + 2*A*B + B**2 + C
+    E = (A**1)*(A**1) + 2*A*B*D + B**2 + C
     F = E.differentiate(A)
     G = E.differentiate(B)
-    H = E.differentiate(A,A)
+    H = E.differentiate(A,B)
+    I = E.differentiate(A,A)
     print(A)
     print(B)
     print(C)
@@ -644,4 +693,4 @@ if(__name__ == "__main__"):
     print(F)
     print(G)
     print(H)
-    print(D.differentiate(A,A))
+    print(I)
