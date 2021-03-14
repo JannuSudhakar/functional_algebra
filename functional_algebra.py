@@ -21,8 +21,15 @@ list_of_evaluation_functions = [
 "divide",
 "pow",
 "neg",
-"log", #forgoive me for not naming this ln, the rest of python calls it log
-"exp"
+"log", #forgive me for not naming this ln, the rest of python calls it log
+"exp",
+"sin",
+"cos",
+"tan",
+"arcsin",
+"arccos",
+"arctan",
+"arctan2"
 ]
 
 variable_dictionary = {} #TODO: see if a garbage collector can be written
@@ -68,6 +75,34 @@ Funcs["numpy"]["log"] = np.log
 Funcs["vanilla python"]["exp"] = math.exp
 Funcs["numpy"]["exp"] = np.exp
 
+#sin implementations:
+Funcs["vanilla python"]["sin"] = math.sin
+Funcs["numpy"]["sin"] = np.sin
+
+#cos implementations:
+Funcs["vanilla python"]["cos"] = math.cos
+Funcs["numpy"]["cos"] = np.cos
+
+#tan implementations:
+Funcs["vanilla python"]["tan"] = math.tan
+Funcs["numpy"]["tan"] = np.tan
+
+#arcsin implementations:
+Funcs["vanilla python"]["arcsin"] = math.asin
+Funcs["numpy"]["arcsin"] = np.arcsin
+
+#arccos implementations:
+Funcs["vanilla python"]["arccos"] = math.acos
+Funcs["numpy"]["arccos"] = np.arccos
+
+#arctan implementations:
+Funcs["vanilla python"]["arctan"] = math.atan
+Funcs["numpy"]["arctan"] = np.arctan
+
+#arctan2 implementations:
+Funcs["vanilla python"]["arctan2"] = math.atan2
+Funcs["numpy"]["arctan2"] = np.arctan2
+
 #--------------------------backend implementations-----------------------------#
 
 def set_backend(B):
@@ -94,6 +129,20 @@ class variable:
             self.evaluation_function = "identity"
             self.argument_variables = [self.variable_index]
             self.argument_constants = []
+
+    def half_hash(self):
+        ret = self.evaluation_function + ":"
+        for c in self.argument_constants:
+            T = type(c)
+            if(T != complex and T != int and T != float):
+                return None
+            ret += str(c)
+            ret += ":"
+        ret += ":::&^&:::"
+        for v in self.argument_variables:
+            ret += str(v)
+            ret += ":"
+        return ret
 
     def give_name(self,name):
         self.name = name
@@ -127,6 +176,8 @@ class variable:
                 ret.argument_variables.append(None)
                 ret.argument_constants.append(a)
         assert(atleast_one_variable)
+        if(len(ret.argument_variables) == 1):
+            return variable_dictionary[ret.argument_variables[0]]
         return ret
 
     @staticmethod
@@ -175,6 +226,8 @@ class variable:
                 ret.argument_constants = [constant] + ret.argument_constants
         if(atleast_one_None): return None
         assert(atleast_one_variable)
+        if(len(ret.argument_variables) == 1):
+            return variable_dictionary[ret.argument_variables[0]]
         return ret
 
     @staticmethod
@@ -204,7 +257,7 @@ class variable:
                 ret.argument_variables += b.argument_variables
                 if(minus):
                     for c in b.argument_constants:
-                        ret.argument_variables.append(-c)
+                        ret.argument_constants.append(-c)
                 else:
                     ret.argument_constants += b.argument_constants
             else:
@@ -283,26 +336,39 @@ class variable:
     def __rpow__(self,a):
         return variable.__pow(a,self)
 
-    def __neg__(self):
+    def __single_argument_variable(self,eval_function):
         ret = variable()
-        ret.evaluation_function = "neg"
-        ret.required_variables_set = set(self.required_variables_set) #let's hope this wards off the demons
+        ret.evaluation_function = eval_function
+        ret.required_variables_set = set(self.required_variables_set)
         ret.argument_variables = [self.variable_index]
         return ret
+
+    def __neg__(self):
+        return self.__single_argument_variable("neg")
 
     def log(self):
-        ret = variable()
-        ret.evaluation_function = "log"
-        ret.required_variables_set = set(self.required_variables_set)
-        ret.argument_variables = [self.variable_index]
-        return ret
+        return self.__single_argument_variable("log")
 
     def exp(self):
-        ret = variable()
-        ret.evaluation_function = "exp"
-        ret.required_variables_set = set(self.required_variables_set)
-        ret.argument_variables = [self.variable_index]
-        return ret
+        return self.__single_argument_variable("exp")
+
+    def sin(self):
+        return self.__single_argument_variable("sin")
+
+    def cos(self):
+        return self.__single_argument_variable("cos")
+
+    def tan(self):
+        return self.__single_argument_variable("tan")
+
+    def arcsin(self):
+        return self.__single_argument_variable("arcsin")
+
+    def arccos(self):
+        return self.__single_argument_variable("arccos")
+
+    def arctan(self):
+        return self.__single_argument_variable("arctan")
 
     def __rshift__(self,a):
         return assigned_variable(self,a)
@@ -322,7 +388,16 @@ class variable:
         elif(self.evaluation_function == "constant"):
             return None
         elif(self.evaluation_function == "add"):
-            return variable.__add_multiple(arg_derivatives).variable_index
+            ret = None
+            for i in range(len(arg_derivatives)):
+                arg_der = arg_derivatives[i]
+                if(arg_der is None):
+                    continue
+                if(ret is None):
+                    ret = (1 if self.argument_constants[i] else -1)*arg_der
+                else:
+                    ret += (1 if self.argument_constants[i] else -1)*arg_der
+            return ret.variable_index
         elif(self.evaluation_function == "product"):
             addands = []
             for i in range(len(self.argument_variables)):
@@ -334,12 +409,12 @@ class variable:
             return variable.__add_multiple(addands).variable_index
         elif(self.evaluation_function == "divide"):
             if(arg_derivatives[0] is None):
-                numerator = variable_dictionary[self.argument_variables[0]] if self.argument_variables is not None else self.argument_constants[0]
+                numerator = variable_dictionary[self.argument_variables[0]] if self.argument_variables[0] is not None else self.argument_constants[0]
                 denominator = variable_dictionary[self.argument_variables[1]]
                 return (-(numerator*arg_derivatives[1])/(denominator**2)).variable_index
             if(arg_derivatives[1] is None):
                 denominator = variable_dictionary[self.argument_variables[1]] if self.argument_variables[1] is not None else self.argument_constants[1]
-                return arg_derivatives[0]/denominator
+                return (arg_derivatives[0]/denominator).variable_index
             numerator = variable_dictionary[self.argument_variables[0]] if self.argument_variables is not None else self.argument_constants[0]
             denominator = variable_dictionary[self.argument_variables[1]] if self.argument_variables[1] is not None else self.argument_constants[1]
             return ((denominator*arg_derivatives[0] - numerator*arg_derivatives[1])/(denominator**2)).variable_index
@@ -376,6 +451,39 @@ class variable:
             return (arg_derivatives[0]/variable_dictionary[self.argument_variables[0]]).variable_index
         elif(self.evaluation_function == "exp"):
             return (arg_derivatives[0]*self).variable_index
+        elif(self.evaluation_function == "sin"):
+            return (arg_derivatives[0]*(variable_dictionary[self.argument_variables[0]].cos())).variable_index
+        elif(self.evaluation_function == "cos"):
+            return (-(arg_derivatives[0]*(variable_dictionary[self.argument_variables[0]].sin()))).variable_index
+        elif(self.evaluation_function == "tan"):
+            return (arg_derivatives[0]/(variable_dictionary[self.argument_variables[0]].cos()**2)).variable_index
+        elif(self.evaluation_function == "arcsin"):
+            ret = (1-variable_dictionary[self.argument_variables[0]]**2)**0.5
+            ret = arg_derivatives[0]/ret
+            return ret.variable_index
+        elif(self.evaluation_function == "arccos"):
+            ret = (1-variable_dictionary[self.argument_variables[0]]**2)**0.5
+            ret = -(arg_derivatives[0]/ret)
+            return ret.variable_index
+        elif(self.evaluation_function == "arctan"):
+            ret = 1+variable_dictionary[self.argument_variables[0]]**2
+            ret = arg_derivatives[0]/ret
+            return ret.variable_index
+        elif(self.evaluation_function == "arctan2"):
+            ret = None
+            arg1 = variable_dictionary[self.argument_variables[0]] if self.argument_variables is not None else self.argument_constants[0]
+            arg2 = variable_dictionary[self.argument_variables[1]] if self.argument_variables[1] is not None else self.argument_constants[1]
+            denominator = arg1**2 + arg2**2
+            if(arg_derivatives[0] is not None):
+                ret = arg2*arg_derivatives[0]
+            if(arg_derivatives[1] is not None):
+                t = -arg1*arg_derivatives[1]
+                ret = t if ret is None else ret + t
+            ret = ret/denominator
+            return ret.variable_index
+
+        else:
+            raise Exception(f"differentiation not implemented for the function {self.evaluation_function}")
 
     def __differentiate_once(self,v):
         if(type(v) != variable):
@@ -465,6 +573,27 @@ class variable:
             return Funcs[backend]["log"](arg_vars[0])
         elif(evaluation_function == "exp"):
             return Funcs[backend]["exp"](arg_vars[0])
+        elif(evaluation_function == "sin"):
+            return Funcs[backend]["sin"](arg_vars[0])
+        elif(evaluation_function == "cos"):
+            return Funcs[backend]["cos"](arg_vars[0])
+        elif(evaluation_function == "tan"):
+            return Funcs[backend]["tan"](arg_vars[0])
+        elif(evaluation_function == "arcsin"):
+            return Funcs[backend]["arcsin"](arg_vars[0])
+        elif(evaluation_function == "arccos"):
+            return Funcs[backend]["arccos"](arg_vars[0])
+        elif(evaluation_function == "arctan"):
+            return Funcs[backend]["arctan"](arg_vars[0])
+        elif(evaluation_function == "arctan2"):
+            arglist = []
+            for i in range(2):
+                if(arg_vars[i] is not None):
+                    arglist.append(arg_vars[i])
+                else:
+                    arglist.append(arg_consts[i])
+            return Funcs[backend]["arctan2"](arglist[0], arglist[1])
+
         raise ValueError("the evaluation function seems to be not implemented")
 
     def evaluate(self,*args):
@@ -558,6 +687,32 @@ class variable:
         return tracking_dict[self.variable_index]['evaluated_value']
 
     @staticmethod
+    def __print_graph(a,indents):
+        indent_text = ""
+        for indent in indents:
+            indent_text += str(indent)
+            indent_text += "."
+        print(indent_text,end="")
+        print(a)
+        print(indent_text,end="")
+        print(f"variable index: {a.variable_index}, name: {a.name}, named: {a.named}")
+        indent_text += "--"
+        print(indent_text,end="")
+        print("evaluation_function: ",a.evaluation_function)
+        print(indent_text,end="")
+        print("argument_variables: ",a.argument_variables)
+        print(indent_text,end="")
+        print("argument_constants: ",a.argument_constants,'\n')
+        if(a.evaluation_function == "identity"):
+            return
+        for b in a.argument_variables:
+            if b is not None:
+                variable.__print_graph(variable_dictionary[b],indents+[a.variable_index])
+
+    def print_graph(self):
+        variable.__print_graph(self,[])
+
+    @staticmethod
     def __str(self,brackets=True): #I guess its a bad idea to name the argument self, but I won't change it rn
         if(self.named or self.evaluation_function == "identity"):
             return self.name
@@ -629,6 +784,26 @@ class variable:
             return f"log({variable.__str(variable_dictionary[self.argument_variables[0]],brackets=False)})"
         elif(self.evaluation_function == "exp"):
             return f"exp({variable.__str(variable_dictionary[self.argument_variables[0]],brackets=False)})"
+        elif(self.evaluation_function == "sin"):
+            return f"sin({variable.__str(variable_dictionary[self.argument_variables[0]],brackets=False)})"
+        elif(self.evaluation_function == "cos"):
+            return f"cos({variable.__str(variable_dictionary[self.argument_variables[0]],brackets=False)})"
+        elif(self.evaluation_function == "tan"):
+            return f"tan({variable.__str(variable_dictionary[self.argument_variables[0]],brackets=False)})"
+        elif(self.evaluation_function == "arcsin"):
+            return f"arcsin({variable.__str(variable_dictionary[self.argument_variables[0]],brackets=False)})"
+        elif(self.evaluation_function == "arccos"):
+            return f"arccos({variable.__str(variable_dictionary[self.argument_variables[0]],brackets=False)})"
+        elif(self.evaluation_function == "arctan"):
+            return f"arctan({variable.__str(variable_dictionary[self.argument_variables[0]],brackets=False)})"
+        elif(self.evaluation_function == "arctan2"):
+            sstrs = []
+            for c in range(2):
+                if(self.argument_variables[c] is None):
+                    sstrs.append(str(self.argument_constants))
+                else:
+                    sstrs.append(variable.__str(variable_dictionary[self.argument_variables[c]],brackets=False))
+            return f"arctan2({sstrs[0]},{sstrs[1]})"
 
         return f"__str not implemented for the evaluation_function {self.evaluation_function}"
 
@@ -651,6 +826,42 @@ class assigned_variable:
 #---------------------------------functions-------------------------------------
 def exp(x):
     return x.exp()
+
+def sin(x):
+    return x.sin()
+
+def cos(x):
+    return x.cos()
+
+def tan(x):
+    return x.tan()
+
+def arccos(x):
+    return x.arccos()
+
+def arcsin(x):
+    return x.arcsin()
+
+def arctan(x):
+    return x.arctan()
+
+def arctan2(y,x):
+    if(type(x) != variable and type(y) != variable):
+        raise TypeError("neither argument is of type variable")
+    ret = variable()
+    ret.evaluation_function = "arctan2"
+    ret.required_variables_set = set()
+    ret.argument_variables = []
+    ret.argument_constants = []
+    for c in [y,x]:
+        if(type(c)==variable):
+            ret.required_variables_set = ret.required_variables_set.union(c.required_variables_set)
+            ret.argument_variables.append(c.variable_index)
+            ret.argument_constants.append(None)
+        else:
+            ret.argument_variables.append(None)
+            ret.argument_constants.append(c)
+    return ret
 
 if(__name__ == "__main__"):
     a = variable("a")
